@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plagiarism Detection System</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .highlighted-text {
+            line-height: 1.8;
+            font-size: 16px;
+        }
+        .gauge {
+            transform: rotate(-90deg);
+        }
+        .upload-zone {
+            border: 2px dashed #cbd5e0;
+            transition: all 0.3s ease;
+        }
+        .upload-zone:hover {
+            border-color: #4299e1;
+            background-color: #f7fafc;
+        }
+        .upload-zone.dragover {
+            border-color: #3182ce;
+            background-color: #ebf8ff;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // API Base URL
+        const API_BASE = 'http://localhost:8000/api';
+
+        // Components
+        const PlagiarismGauge = ({ score }) => {
+            const radius = 70;
+            const strokeWidth = 8;
+            const normalizedRadius = radius - strokeWidth * 2;
+            const circumference = normalizedRadius * 2 * Math.PI;
+            const strokeDasharray = `${circumference} ${circumference}`;
+            const strokeDashoffset = circumference - (score / 100) * circumference;
+
+            const getColor = (score) => {
+                if (score < 30) return '#10b981'; // Green
+                if (score < 60) return '#f59e0b'; // Yellow
+                return '#ef4444'; // Red
+            };
+
+            return (
+                <div className="flex flex-col items-center">
+                    <div className="relative">
+                        <svg height={radius * 2} width={radius * 2} className="gauge">
+                            <circle
+                                stroke="#e5e7eb"
+                                fill="transparent"
+                                strokeWidth={strokeWidth}
+                                r={normalizedRadius}
+                                cx={radius}
+                                cy={radius}
+                            />
+                            <circle
+                                stroke={getColor(score)}
+                                fill="transparent"
+                                strokeWidth={strokeWidth}
+                                strokeDasharray={strokeDasharray}
+                                style={{ strokeDashoffset }}
+                                r={normalizedRadius}
+                                cx={radius}
+                                cy={radius}
+                                className="transition-all duration-1000 ease-out"
+                                strokeLinecap="round"
+                            />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-2xl font-bold" style={{ color: getColor(score) }}>
+                                {score.toFixed(1)}%
+                            </span>
+                        </div>
+                    </div>
+                    <p className="mt-2 text-sm text-gray-600">Plagiarism Score</p>
+                </div>
+            );
+        };
+
+        const FileUpload = ({ onFileSelect, onTextChange, text }) => {
+            const [dragOver, setDragOver] = useState(false);
+            const fileInputRef = useRef(null);
+
+            const handleDragOver = (e) => {
+                e.preventDefault();
+                setDragOver(true);
+            };
+
+            const handleDragLeave = (e) => {
+                e.preventDefault();
+                setDragOver(false);
+            };
+
+            const handleDrop = (e) => {
+                e.preventDefault();
+                setDragOver(false);
+                const files = Array.from(e.dataTransfer.files);
+                if (files.length > 0) {
+                    onFileSelect(files[0]);
+                }
+            };
+
+            const handleFileInput = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    onFileSelect(file);
+                }
+            };
+
+            return (
+                <div className="space-y-4">
+                    <div
+                        className={`upload-zone p-8 rounded-lg text-center cursor-pointer ${
+                            dragOver ? 'dragover' : ''
+                        }`}
+                        onDragOver={handleDragOver}
+                        onDragLeave={handleDragLeave}
+                        onDrop={handleDrop}
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        <div className="space-y-2">
+                            <div className="text-4xl">📄</div>
+                            <p className="text-lg font-medium">Drop files here or click to upload</p>
+                            <p className="text-sm text-gray-500">Supports PDF, DOCX, TXT files</p>
+                        </div>
+                        <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept=".pdf,.docx,.txt"
+                            onChange={handleFileInput}
+                            className="hidden"
+                        />
+                    </div>
+                    
+                    <div className="text-center text-gray-500">OR</div>
+                    
+                    <textarea
+                        value={text}
+                        onChange={(e) => onTextChange(e.target.value)}
+                        placeholder="Paste your text here for plagiarism checking..."
+                        className="w-full h-40 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                </div>
+            );
+        };
+
+        const ResultsPanel = ({ results, isLoading }) => {
+            if (isLoading) {
+                return (
+                    <div className="flex items-center justify-center p-8">
+                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                        <span className="ml-3 text-lg">Analyzing text...</span>
+                    </div>
+                );
+            }
+
+            if (!results) return null;
+
+            const { plagiarism_score, highlighted_text, detailed_results, source_references, suggestions, stylometry_analysis } = results;
+
+            return (
+                <div className="space-y-6">
+                    {/* Plagiarism Score */}
+                    <div className="bg-white p-6 rounded-lg shadow">
+                        <div className="flex items-center justify-between">
+                            <PlagiarismGauge score={plagiarism_score} />
+                            <div className="text-right">
+                                <div className="text-sm text-gray-600 mb-2">Analysis Summary</div>
+                                <div className="space-y-1 text-sm">
+                                    <div className="flex items-center">
+                                        <span className="w-3 h-3 bg-red-500 rounded-full mr-2"></span>
+                                        <span>Exact matches: {detailed_results.filter(r => r.category === 'exact').length}</span>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <span className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
+                                        <span>Paraphrased: {detailed_results.filter(r => r.category === 'paraphrased').length}</span>
+                                    </div>
+                                    <div className="flex items-center">
+                                        <span className="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
+                                        <span>Original: {detailed_results.filter(r => r.category === 'original').length}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Highlighted Text */}
+                    <div className="bg-white p-6 rounded-lg shadow">
+                        <h3 className="text-lg font-semibold mb-4">Highlighted Analysis</h3>
+                        <div className="highlighted-text p-4 border rounded" 
+                             dangerouslySetInnerHTML={{ __html: highlighted_text }}>
+                        </div>
+                        <div className="mt-4 text-xs text-gray-600">
+                            <span className="bg-red-500 text-white px-2 py-1 rounded mr-2">Plagiarized</span>
+                            <span className="bg-yellow-500 text-white px-2 py-1 rounded mr-2">Paraphrased</span>
+                            <span className="bg-green-500 text-white px-2 py-1 rounded">Original</span>
+                        </div>
+                    </div>
+
+                    {/* Source References */}
+                    {source_references && source_references.length > 0 && (
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <h3 className="text-lg font-semibold mb-4">Source References</h3>
+                            <div className="space-y-3">
+                                {source_references.map((ref, idx) => (
+                                    <div key={idx} className="border-l-4 border-red-500 pl-4 py-2 bg-red-50">
+                                        <div className="text-sm font-medium">Similarity: {(ref.similarity_score * 100).toFixed(1)}%</div>
+                                        <div className="text-sm text-gray-700 mt-1">
+                                            <strong>Your text:</strong> "{ref.original_sentence.substring(0, 100)}..."
+                                        </div>
+                                        <div className="text-sm text-gray-600 mt-1">
+                                            <strong>Matched source:</strong> "{ref.matched_sentence.substring(0, 100)}..."
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Paraphrase Suggestions */}
+                    {suggestions && suggestions.length > 0 && (
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <h3 className="text-lg font-semibold mb-4">Improvement Suggestions</h3>
+                            <div className="space-y-2">
+                                {suggestions.map((suggestion, idx) => (
+                                    <div key={idx} className="p-3 bg-blue-50 border border-blue-200 rounded">
+                                        <div className="text-sm text-blue-800">{suggestion}</div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Stylometry Analysis */}
+                    {stylometry_analysis && !stylometry_analysis.error && (
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <h3 className="text-lg font-semibold mb-4">Writing Style Analysis</h3>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="text-center p-3 bg-gray-50 rounded">
+                                    <div className="text-2xl font-bold text-blue-600">
+                                        {stylometry_analysis.avg_sentence_length.toFixed(1)}
+                                    </div>
+                                    <div className="text-xs text-gray-600">Avg Sentence Length</div>
+                                </div>
+                                <div className="text-center p-3 bg-gray-50 rounded">
+                                    <div className="text-2xl font-bold text-green-600">
+                                        {stylometry_analysis.avg_word_length.toFixed(1)}
+                                    </div>
+                                    <div className="text-xs text-gray-600">Avg Word Length</div>
+                                </div>
+                                <div className="text-center p-3 bg-gray-50 rounded">
+                                    <div className="text-2xl font-bold text-purple-600">
+                                        {(stylometry_analysis.lexical_diversity * 100).toFixed(1)}%
+                                    </div>
+                                    <div className="text-xs text-gray-600">Lexical Diversity</div>
+                                </div>
+                                <div className="text-center p-3 bg-gray-50 rounded">
+                                    <div className="text-2xl font-bold text-orange-600">
+                                        {stylometry_analysis.total_sentences}
+                                    </div>
+                                    <div className="text-xs text-gray-600">Total Sentences</div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const BatchProcessing = ({ onBatchProcess, isLoading }) => {
+            const [texts, setTexts] = useState(['']);
+            const [batchResults, setBatchResults] = useState(null);
+
+            const addTextArea = () => {
+                setTexts([...texts, '']);
+            };
+
+            const updateText = (index, value) => {
+                const newTexts = [...texts];
+                newTexts[index] = value;
+                setTexts(newTexts);
+            };
+
+            const removeText = (index) => {
+                if (texts.length > 1) {
+                    const newTexts = texts.filter((_, i) => i !== index);
+                    setTexts(newTexts);
+                }
+            };
+
+            const processBatch = async () => {
+                const validTexts = texts.filter(text => text.trim().length > 0);
+                if (validTexts.length === 0) return;
+
+                try {
+                    const response = await fetch(`${API_BASE}/batch-check`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            texts: validTexts,
+                            check_type: 'similarity'
+                        }),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    setBatchResults(data);
+                } catch (error) {
+                    console.error('Batch processing error:', error);
+                    alert('Error processing batch: ' + error.message);
+                }
+            };
+
+            return (
+                <div className="space-y-6">
+                    <div className="bg-white p-6 rounded-lg shadow">
+                        <h3 className="text-lg font-semibold mb-4">Batch Processing</h3>
+                        <div className="space-y-4">
+                            {texts.map((text, index) => (
+                                <div key={index} className="relative">
+                                    <textarea
+                                        value={text}
+                                        onChange={(e) => updateText(index, e.target.value)}
+                                        placeholder={`Text ${index + 1} - Enter text for plagiarism checking...`}
+                                        className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                    />
+                                    {texts.length > 1 && (
+                                        <button
+                                            onClick={() => removeText(index)}
+                                            className="absolute top-2 right-2 text-red-500 hover:text-red-700"
+                                        >
+                                            ✕
+                                        </button>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="flex gap-2 mt-4">
+                            <button
+                                onClick={addTextArea}
+                                className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition-colors"
+                            >
+                                Add Text
+                            </button>
+                            <button
+                                onClick={processBatch}
+                                disabled={isLoading}
+                                className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
+                            >
+                                {isLoading ? 'Processing...' : 'Check All'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {batchResults && (
+                        <div className="bg-white p-6 rounded-lg shadow">
+                            <h3 className="text-lg font-semibold mb-4">Batch Results</h3>
+                            <div className="text-sm text-gray-600 mb-4">
+                                Processed {batchResults.total_processed} texts
+                            </div>
+                            <div className="space-y-3">
+                                {batchResults.batch_results.map((result, index) => (
+                                    <div key={index} className="border rounded p-4">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <span className="font-medium">Text {result.text_index + 1}</span>
+                                            <span className={`px-2 py-1 rounded text-sm font-medium ${
+                                                result.plagiarism_score < 30 ? 'bg-green-100 text-green-800' :
+                                                result.plagiarism_score < 60 ? 'bg-yellow-100 text-yellow-800' :
+                                                'bg-red-100 text-red-800'
+                                            }`}>
+                                                {result.plagiarism_score.toFixed(1)}% plagiarism
+                                            </span>
+                                        </div>
+                                        <div className="text-sm text-gray-600 mb-2">
+                                            {result.preview}
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                            Exact: {result.stats.plagiarized} | Paraphrased: {result.stats.paraphrased} | Original: {result.stats.original}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const ReportHistory = () => {
+            const [reports, setReports] = useState([]);
+            const [loading, setLoading] = useState(false);
+
+            useEffect(() => {
+                fetchReports();
+            }, []);
+
+            const fetchReports = async () => {
+                setLoading(true);
+                try {
+                    const response = await fetch(`${API_BASE}/reports?limit=20`);
+                    const data = await response.json();
+                    setReports(data.reports || []);
+                } catch (error) {
+                    console.error('Error fetching reports:', error);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            const generatePDFReport = async (reportId) => {
+                try {
+                    const response = await fetch(`${API_BASE}/generate-report/${reportId}`, {
+                        method: 'POST'
+                    });
+                    if (response.ok) {
+                        const blob = await response.blob();
+                        const url = window.URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.style.display = 'none';
+                        a.href = url;
+                        a.download = `plagiarism_report_${reportId}.pdf`;
+                        document.body.appendChild(a);
+                        a.click();
+                        window.URL.revokeObjectURL(url);
+                    }
+                } catch (error) {
+                    console.error('Error generating PDF:', error);
+                }
+            };
+
+            return (
+                <div className="bg-white p-6 rounded-lg shadow">
+                    <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-lg font-semibold">Report History</h3>
+                        <button
+                            onClick={fetchReports}
+                            className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+                        >
+                            Refresh
+                        </button>
+                    </div>
+
+                    {loading ? (
+                        <div className="flex justify-center p-4">
+                            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+                        </div>
+                    ) : (
+                        <div className="space-y-3">
+                            {reports.length === 0 ? (
+                                <p className="text-gray-500 text-center py-4">No reports found</p>
+                            ) : (
+                                reports.map((report) => (
+                                    <div key={report.id} className="border rounded p-3">
+                                        <div className="flex justify-between items-start">
+                                            <div>
+                                                <div className="font-medium text-sm">
+                                                    Report {report.id.slice(0, 8)}...
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    {new Date(report.timestamp).toLocaleString()}
+                                                </div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className={`px-2 py-1 rounded text-xs font-medium ${
+                                                    report.plagiarism_score < 30 ? 'bg-green-100 text-green-800' :
+                                                    report.plagiarism_score < 60 ? 'bg-yellow-100 text-yellow-800' :
+                                                    'bg-red-100 text-red-800'
+                                                }`}>
+                                                    {report.plagiarism_score.toFixed(1)}%
+                                                </div>
+                                                <button
+                                                    onClick={() => generatePDFReport(report.id)}
+                                                    className="mt-1 px-2 py-1 text-xs bg-gray-500 text-white rounded hover:bg-gray-600"
+                                                >
+                                                    PDF
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const PlagiarismDetectionApp = () => {
+            const [activeTab, setActiveTab] = useState('check');
+            const [text, setText] = useState('');
+            const [results, setResults] = useState(null);
+            const [isLoading, setIsLoading] = useState(false);
+            const [referenceTexts, setReferenceTexts] = useState('');
+
+            const handleFileSelect = async (file) => {
+                setIsLoading(true);
+                try {
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    const response = await fetch(`${API_BASE}/upload-file`, {
+                        method: 'POST',
+                        body: formData,
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    setText(data.text);
+                } catch (error) {
+                    console.error('File upload error:', error);
+                    alert('Error uploading file: ' + error.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            const checkPlagiarism = async () => {
+                if (!text.trim()) {
+                    alert('Please enter text to check');
+                    return;
+                }
+
+                setIsLoading(true);
+                setResults(null);
+
+                try {
+                    const requestBody = {
+                        text: text,
+                        check_type: 'similarity',
+                        language: 'en',
+                        threshold_exact: 0.90,
+                        threshold_paraphrase: 0.70
+                    };
+
+                    if (referenceTexts.trim()) {
+                        requestBody.reference_texts = referenceTexts.split('\n').filter(t => t.trim());
+                    }
+
+                    const response = await fetch(`${API_BASE}/check-plagiarism`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify(requestBody),
+                    });
+
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+
+                    const data = await response.json();
+                    setResults(data);
+                } catch (error) {
+                    console.error('Plagiarism check error:', error);
+                    alert('Error checking plagiarism: ' + error.message);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+
+            return (
+                <div className="min-h-screen bg-gray-100">
+                    <div className="bg-white shadow">
+                        <div className="max-w-6xl mx-auto px-4 py-6">
+                            <h1 className="text-3xl font-bold text-gray-900">
+                                🔍 Plagiarism Detection System
+                            </h1>
+                            <p className="text-gray-600 mt-2">
+                                Advanced NLP-powered plagiarism detection with paraphrase analysis and stylometry
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="max-w-6xl mx-auto px-4 py-6">
+                        {/* Navigation Tabs */}
+                        <div className="flex space-x-1 mb-6">
+                            {[
+                                { id: 'check', label: 'Plagiarism Check', icon: '🔍' },
+                                { id: 'batch', label: 'Batch Processing', icon: '📊' },
+                                { id: 'history', label: 'Report History', icon: '📋' }
+                            ].map((tab) => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setActiveTab(tab.id)}
+                                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                                        activeTab === tab.id
+                                            ? 'bg-blue-500 text-white'
+                                            : 'bg-white text-gray-700 hover:bg-gray-50'
+                                    }`}
+                                >
+                                    {tab.icon} {tab.label}
+                                </button>
+                            ))}
+                        </div>
+
+                        {activeTab === 'check' && (
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                {/* Input Panel */}
+                                <div className="space-y-6">
+                                    <div className="bg-white p-6 rounded-lg shadow">
+                                        <h2 className="text-xl font-semibold mb-4">Input Text</h2>
+                                        <FileUpload
+                                            onFileSelect={handleFileSelect}
+                                            onTextChange={setText}
+                                            text={text}
+                                        />
+                                    </div>
+
+                                    {/* Reference Texts */}
+                                    <div className="bg-white p-6 rounded-lg shadow">
+                                        <h3 className="text-lg font-semibold mb-4">Reference Texts (Optional)</h3>
+                                        <textarea
+                                            value={referenceTexts}
+                                            onChange={(e) => setReferenceTexts(e.target.value)}
+                                            placeholder="Enter reference texts (one per line) to check against..."
+                                            className="w-full h-24 p-3 border border-gray-300 rounded-lg resize-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                        />
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            Leave empty to use default reference corpus
+                                        </p>
+                                    </div>
+
+                                    <button
+                                        onClick={checkPlagiarism}
+                                        disabled={isLoading || !text.trim()}
+                                        className="w-full bg-blue-500 text-white py-3 px-6 rounded-lg font-medium hover:bg-blue-600 disabled:bg-gray-400 transition-colors"
+                                    >
+                                        {isLoading ? 'Analyzing...' : 'Check Plagiarism'}
+                                    </button>
+                                </div>
+
+                                {/* Results Panel */}
+                                <div>
+                                    <ResultsPanel results={results} isLoading={isLoading} />
+                                </div>
+                            </div>
+                        )}
+
+                        {activeTab === 'batch' && (
+                            <BatchProcessing onBatchProcess={() => {}} isLoading={isLoading} />
+                        )}
+
+                        {activeTab === 'history' && (
+                            <ReportHistory />
+                        )}
+                    </div>
+
+                    {/* Footer */}
+                    <footer className="bg-white border-t mt-12">
+                        <div className="max-w-6xl mx-auto px-4 py-6 text-center text-gray-600">
+                            <p>Powered by Sentence Transformers, spaCy, and FastAPI</p>
+                            <p className="text-sm mt-2">
+                                Features: Exact matching, paraphrase detection, stylometry analysis, multilingual support
+                            </p>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<PlagiarismDetectionApp />, document.getElementById('root'));
+    </script>
+</body>
+</html>
