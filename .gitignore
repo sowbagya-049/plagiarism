@@ -1,2 +1,79 @@
+# Virtual environments
 .venv/
 venv/
+venv_new/
+env/
+dist/
+build/
+
+# Python cache and temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ML Models and Checkpoints
+models/
+fine_tuned_model/
+checkpoints/
+*.pt
+*.pth
+*.h5
+*.ckpt
+*.bin
+*.model
+*.weights
+*.safetensors
+*.onnx
+
+# Datasets and Large Data
+datasets/
+dataset/
+data/
+*.csv
+*.jsonl
+*.parquet
+*.zip
+*.tar.gz
+*.7z
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Reports and logs
+plagiarism_report_*.pdf
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE settings
+.vscode/
+.idea/
+*.swp
+*.swo
